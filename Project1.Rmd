@@ -1,0 +1,152 @@
+---
+title: "CUNY SPS - Master of Science in Data Science - DATA607"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Project 1: Chess Tournament Data Manipulation
+# Mario Pena
+# 9/22/2019
+
+In this project, we are given a text file with chess tournament results where the information has some structure. I will extract relevant information and create an R Markdown file that will later generate a .CSV file that could be used in a database management system. 
+
+
+I will look for and obtain the following player information:
+
+Player’s Name, Player’s State, Total Number of Points, Player’s Pre-Rating, and Average Pre Chess Rating of Opponents.
+
+
+My first step is to load the data into R:
+
+```{r}
+chess_data <- read.delim("https://raw.githubusercontent.com/marioipena/Project1data/master/tournamentinfo.txt", header = FALSE, stringsAsFactors = FALSE)
+```
+
+Let's take a look at our data to get a better sense of how we will extract the required information:
+
+```{r}
+head(chess_data, 10)
+```
+
+We can see from the first few lines of our data that there seems to be a pattern separating each player. I will use this pattern to identify two lines, which contain information we want to extract from each player.
+
+```{r}
+player = chess_data[seq(5, nrow(chess_data), 3), ] #The player data starts at line 5
+ratings = chess_data[seq(6, nrow(chess_data), 3), ] #The ratings data starts at line 6
+```
+
+Now we will use regular expressions to extract only the information we identified at the instructions of the project.
+
+I will extract each variable separately in order to form vectors that I will later on put together in a dataframe.
+
+
+First, let's extract all the information we will need from the "player" row.
+
+
+*Note that I will also extract player ID as it will help us later on to obtain the average opponent's rating*
+
+```{r}
+library(stringr)
+playerId <- as.integer(str_extract(player, "\\d+"))
+playerName <- str_extract(player, "(\\w+\\s){2,4}(\\w+-\\w+)?") #There are players with 4 names and hyphenated names.
+playerName <- str_trim(playerName) #This gets rid of the extra blank spaces.
+playerPoints <- as.numeric(str_extract(player, "\\d+\\.\\d+"))
+playerOpponent <- str_extract_all(player, "\\d+\\|")
+playerOpponent <- str_extract_all(playerOpponent, "\\d+") #I use a second step to get the opponent ID by itself.
+```
+
+I will now extract all the information we need from the "ratings" row.
+
+```{r}
+playerState <- str_extract(ratings, "\\w+")
+playerRating <- (str_extract(ratings, "(\\:\\s\\s?\\d+)([[:alpha:]]\\d+)?"))
+playerRating <- as.numeric(str_extract(playerRating, "\\d+")) #I used a second step to get the player's rating by itself.
+```
+
+Let's put together this dataframe and see what it looks like for now.
+
+```{r}
+chess_data_trans <- data.frame(playerId, playerName, playerState, playerPoints, playerRating)
+head(chess_data_trans)
+```
+Great! We're a step closer to completing the task at hand.
+
+
+The last step is to add a column that shows the average of the opponent's pre chess ratings. This will require us to use a for loop in order to add up each of the opponent's pre-ratings and use the mean fuction for simplicity.
+
+
+First let's find a way to get a list of the opponents by player ID:
+
+```{r}
+unlist(playerOpponent[playerId[1]])
+unlist(playerOpponent[playerId[2]])
+```
+
+We can see above that I managed to pull a list of the opponets' IDs for player Gary Hua and Dakshesh Daruri, which have player ID 1 and 2 respectively.
+
+
+Next let's try to get the actual pre-rating for each of these opponents:
+
+```{r}
+playerRating[as.numeric(unlist(playerOpponent[playerId[1]]))]
+playerRating[as.numeric(unlist(playerOpponent[playerId[2]]))]
+```
+
+Lastly, the mean. I'll round the number to an integer:
+```{r}
+round(mean(playerRating[as.numeric(unlist(playerOpponent[playerId[1]]))]), digits = 0)
+round(mean(playerRating[as.numeric(unlist(playerOpponent[playerId[2]]))]), digits = 0)
+```
+
+Ok, and let's wrap this up in a for loop so that we don't have to actually do this one by one for all 64 players:
+
+```{r}
+avgRating = 0
+  for (i in 1:64) { 
+  avgRating[i] <- round(mean(playerRating[as.numeric(unlist(playerOpponent[playerId[i]]))]), digits = 0) 
+  }
+```
+
+Our next step is to add this last vector to our dataframe and take a look at the data:
+
+```{r}
+chess_data_trans <- data.frame(playerId, playerName, playerState, playerPoints, playerRating, avgRating)
+colnames(chess_data_trans) <- c("Player ID", "Player Name", "State", "Total Points", "Pre-Rating", "Average Opponents Pre-Rating")
+head(chess_data_trans, 10)
+```
+
+Let's see how many players there are per state:
+
+```{r}
+table(chess_data_trans$State)
+```
+
+Highest player pre-rating by state:
+
+```{r}
+tapply(chess_data_trans$`Pre-Rating`, chess_data_trans$State, max)
+```
+
+The highest player pre-rating in the whole data set:
+
+```{r}
+subset(chess_data_trans, `Pre-Rating` == max(chess_data_trans$`Pre-Rating`), select = c(`Player ID`, `Player Name`, State, `Total Points`, `Pre-Rating`))
+```
+Average Pre-Rating by state:
+
+```{r}
+avg_state_rating <- aggregate(x=chess_data_trans["Pre-Rating"], by = list(State=chess_data_trans$State), FUN = mean, na.rm=TRUE)
+avg_state_rating
+library(ggplot2)
+ggplot(aes(x = reorder (State, -`Pre-Rating`), y = `Pre-Rating`), data = avg_state_rating) + geom_bar(stat = "identity")
+```
+
+In our final step we generate a .CSV file:
+```{r}
+write.table(chess_data_trans, file = "chessExtraction.csv", row.names = FALSE, na = "", col.names = TRUE, sep = ",")
+```
